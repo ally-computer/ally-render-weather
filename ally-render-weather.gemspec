@@ -19,6 +19,8 @@ Gem::Specification.new do |spec|
   spec.require_paths = ['lib']
 
   spec.add_dependency 'ally', '~> 0.0', '>= 0.0.17'
+  spec.add_dependency 'ally-detector-date'
+  spec.add_dependency 'ally-detector-location'
   spec.add_dependency 'wunderground'
 
   # development dependencies

@@ -14,14 +14,16 @@ module Ally
       def initialize
         super # do not delete
         @keywords = %w( weather temperature outside )
-        @wunderground = Wunderground.new(@settings[:apikey])
-        @zipcode = Ally::Foundation.settings[:me][:home][:zipcode]
+        raise "Missing wunderground apikey" unless @plugin_settings.has_key?(:apikey)
+        @wunderground = Wunderground.new(@plugin_settings[:apikey])
+        raise "Missing zipcode config (user/home/zipcode)" unless @user_settings[:home][:zipcode]
+        @zipcode = @user_settings[:home][:zipcode]
       end
 
       def history(datetime)
         # TODO mention weather conditions like rain, snow, thunder, tornados, etc
         resp = @wunderground.history_for(datetime.to_time, @location)
-        unit = @settings[:unit].downcase
+        unit = @plugin_settings[:unit].downcase
         conditions = resp['history']['dailysummary'].first
         high_temp = unit == 'c' ? conditions['maxtempm'] : conditions['maxtempi']
         low_temp = unit == 'c' ? conditions['mintempm'] : conditions['mintempi']
@@ -31,12 +33,12 @@ module Ally
 
       def forecast(datetime)
         resp = @wunderground.forecast_for(@location)
-        Ally::Foundation.symbolize_keys_deep!(resp)
+        resp = Ally::Foundation.deep_symbolize(resp)
         forecasts = resp[:forecast][:txt_forecast][:forecastday]
         # see if the forecast doesn't reach the requested date
         forecast = nil
         forecasts.each do |f|
-          if f['title'] =~ /^#{datetime.strftime("%A")}/i
+          if f[:title] =~ /^#{datetime.strftime("%A")}/i
             forecast = f
             break
           end
@@ -45,24 +47,24 @@ module Ally
           @io.say("Sorry, can't see a forecast that far in advance.")
           return nil
         end
-        if @settings[:unit].downcase == 'c'
-          @io.say("For #{forecast['title']}, #{forecast['fcttext_metric']}")
+        if @plugin_settings[:unit].downcase == 'c'
+          @io.say("For #{forecast[:title]}, #{forecast[:fcttext_metric]}")
         else
-          @io.say("For #{forecast['title']}, #{forecast['fcttext']}")
+          @io.say("For #{forecast[:title]}, #{forecast[:fcttext]}")
         end
       end
 
       def conditions
         resp = @wunderground.conditions_for(@location)
-        Ally::Foundation.symbolize_keys_deep!(resp)
+        resp = Ally::Foundation.deep_symbolize(resp)
         w = resp[:current_observation]
 
         status = w[:weather].downcase
         city = w[:display_location][:city]
         state = w[:display_location][:state_name]
-        temp = (@settings[:unit].downcase == 'c' ? w[:temp_c] : w[:temp_f]).to_i
-        unit = @settings[:unit].downcase == 'c' ? 'celsius' : 'fahrenheit'
-        feels_like = (@settings[:unit].downcase == 'c' ? w[:feelslike_c] : w[:feelslike_f]).to_i
+        temp = (@plugin_settings[:unit].downcase == 'c' ? w[:temp_c] : w[:temp_f]).to_i
+        unit = @plugin_settings[:unit].downcase == 'c' ? 'celsius' : 'fahrenheit'
+        feels_like = (@plugin_settings[:unit].downcase == 'c' ? w[:feelslike_c] : w[:feelslike_f]).to_i
         say = "For #{city}, #{state}, "
         if @inquiry.words.include?('temperature')
           say += "Its currently #{temp} degrees #{unit}"
@@ -77,8 +79,7 @@ module Ally
         # delete weather keywords (to not confuse place detection)
         str = @inquiry.raw
         @keywords.each { |k| str.gsub!(k, '') }
-        temp_inquiry = Ally::Inquiry.new(str)
-        location = Ally::Detector::Location.new(temp_inquiry).detect
+        location = Ally::Detector::Location.new(str).detect
         @location = location.nil? ? @zipcode : location
       end
 
@@ -86,7 +87,7 @@ module Ally
         @io = io
         @inquiry = inquiry
         location = find_location
-        datetime = Ally::Detector::Date.new(@inquiry).detect
+        datetime = Ally::Detector::Date.new(@inquiry.raw).detect
         if datetime.nil?
           conditions
         else
